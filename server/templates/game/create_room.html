@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Создать Игру{% endblock %}
+
+{% block content %}
+    <h1>Создать Игру</h1>
+
+    {% if messages %} {# Блок для отображения сообщений Django #}
+        <ul class="messages">
+        {% for message in messages %}
+            <li class="{{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+        </ul>
+    {% endif %}
+
+    <form method="POST">
+        {% csrf_token %}
+        
+        {# Отображение полей формы. form.as_p рендерит каждое поле в <p> теге. #}
+        {{ form.as_p }} 
+        
+        {# Можно рендерить поля по отдельности для большей кастомизации #}
+        <p>Ваш текущий баланс: {{ user.cash }}</p>
+        <p>Максимальная ставка, которую вы можете сделать: {{ max_bet }}</p>
+        
+        <button type="submit" class="btn">Создать комнату</button>
+    </form>
+    <br>
+    <a href="{% url 'lobby' %}">Назад в лобби</a> {# Убедитесь, что 'lobby' - правильное имя URL для лобби #}
+{% endblock %}

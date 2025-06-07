@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Комната: {{ room.name }}{% endblock %}
+
+{% block content %}
+    <h1>Комната: {{ room.name }}</h1>
+
+    {% if messages %}
+        <ul class="messages">
+        {% for message in messages %}
+            <li class="{{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+        </ul>
+    {% endif %}
+
+    <p>Статус комнаты: <strong>{{ room.get_status_display }}</strong></p>
+    <p>Ставка: {{ room.bet_amount }}</p>
+    <p>Игроки ({{ room.players.count }}/{{ room.max_players }}):</p>
+    <ul>
+        {% for p in room.players.all %}
+            <li>
+                {{ p.username }}
+                {% if game_state and p.id == game_state.attacker_id %} (Атакует){% endif %}
+                {% if game_state and p.id == game_state.defender_id %} (Защищается){% endif %}
+                {% if p == room.creator %}(Создатель){% endif %}
+            </li>
+        {% endfor %}
+    </ul>
+
+    {% if room.status == room.STATUS_WAITING and is_creator and room.players.count >= 2 and room.players.count <= room.max_players %}
+        <form id="start-game-form" action="{% url 'game:start_game' room.id %}" method="POST" style="margin-bottom: 10px;">
+            {% csrf_token %}
+            <button type="submit" class="btn">Начать игру</button>
+        </form>
+    {% elif room.status == room.STATUS_WAITING %}
+        <p>Ожидание игроков... {% if room.players.count < 2 %}Нужно хотя бы 2 игрока.{% endif %}</p>
+        {% if not is_creator and room.players.count >= 2 %}
+           <p>Создатель комнаты может начать игру.</p>
+        {% endif %}
+    {% endif %}
+
+    <hr>
+
+    <h2>Состояние игры:</h2>
+    {% if game_state and room.status == room.STATUS_PLAYING %}
+        <p>Козырь: <strong>{{ game_state.trump_suit|upper }}</strong>
+            {% if game_state.trump_card_revealed and game_state.trump_card_revealed.image_url %}
+                <img src="{{ game_state.trump_card_revealed.image_url }}" 
+                     alt="Козырь {{ game_state.trump_card_revealed.rank }} {{ game_state.trump_card_revealed.suit }}" 
+                     title="Козырь: {{ game_state.trump_card_revealed.rank }} {{ game_state.trump_card_revealed.suit }}" 
+                     class="game-card-image">
+            {% elif game_state.trump_card_revealed %}
+                 ({{ game_state.trump_card_revealed.rank }} {{ game_state.trump_card_revealed.suit }})
+            {% endif %}
+        </p>
+        <p>Карт в колоде: {{ game_state.deck_count }}</p>
+        {% if game_state.attacker_username %}
+            <p>Атакующий: <strong>{{ game_state.attacker_username }}</strong></p>
+        {% endif %}
+        {% if game_state.defender_username %}
+            <p>Защищающийся: <strong>{{ game_state.defender_username }}</strong></p>
+        {% endif %}
+        
+        <h3>Ваши карты:</h3>
+        <div id="player-hand" class="player-hand-container">
+        {% for p_state in game_state.players %}
+            {% if p_state.id == user.id %} {# Отображаем карты только для текущего пользователя #}
+                {% if p_state.cards %}
+                {% for card in p_state.cards %}
+                <div class="card-wrapper card-in-hand" data-hand-index="{{ card.hand_index }}">
+                    {% if card.image_url %}
+                        <img src="{{ card.image_url }}" 
+                             alt="{{ card.rank }} {{ card.suit }}" 
+                             title="{{ card.rank }} {{ card.suit }} (индекс {{ card.hand_index }})"
+                             class="game-card-image">
+                    {% else %}
+                        {{ card.rank }} {{ card.suit }}
+                    {% endif %}
+                </div>
+            {% endfor %}
+                {% else %}
+                    <p>У вас нет карт.</p>
+                {% endif %}
+            {% endif %}
+        {% endfor %}
+        </div>
+
+        <h3>Карты на столе:</h3>
+        <div id="game-table" class="game-table-container">
+        {% if game_state.table %}
+            {% for item in game_state.table %}
+                <div class="table-pair card-wrapper">
+                    <div class="attack-card">
+                        Атака: 
+                        {% if item.attack_card.image_url %}
+                            <img src="{{ item.attack_card.image_url }}" 
+                                 alt="Атака {{ item.attack_card.rank }} {{ item.attack_card.suit }}" 
+                                 title="Атака: {{ item.attack_card.rank }} {{ item.attack_card.suit }}" 
+                                 class="table-card-image">
+                        {% else %}
+                            {{ item.attack_card.rank }} {{ item.attack_card.suit }}
+                        {% endif %}
+                    </div>
+                    <div class="defense-card" style="margin-top: 5px;">
+                    {% if item.defense_card %}
+                        Защита: 
+                        {% if item.defense_card.image_url %}
+                            <img src="{{ item.defense_card.image_url }}" 
+                                 alt="Защита {{ item.defense_card.rank }} {{ item.defense_card.suit }}" 
+                                 title="Защита: {{ item.defense_card.rank }} {{ item.defense_card.suit }}" 
+                                 class="table-card-image">
+                        {% else %}
+                             {{ item.defense_card.rank }} {{ item.defense_card.suit }}
+                        {% endif %}
+                    {% else %}
+                        (не отбита)
+                    {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p>Стол пуст.</p>
+        {% endif %}
+        </div>
+
+        {% if game_state.status == "playing" %}
+            <div style="margin-top: 20px;">
+                {% if user.id == game_state.attacker_id %}
+                    <button id="action-pass-bito" class="btn">Пас / Бито</button>
+                {% endif %}
+
+                {% if user.id == game_state.defender_id %}
+                    <button id="action-take" class="btn">Взять карты</button>  
+                {% endif %}
+            </div>
+        {% endif %}
+
+    {% elif room.status == room.STATUS_PLAYING %}
+        <p>Загрузка состояния игры...</p>
+    {% elif room.status == room.STATUS_FINISHED %}
+        <p><strong>Игра завершена!</strong></p>
+        {% if game_state.winner_username and game_state.winner_username != "Ничья" %}
+            <p>Победитель: {{ game_state.winner_username }}</p>
+        {% elif game_state.winner_username == "Ничья" %}
+            <p>Результат: Ничья.</p>
+        {% elif game_state.loser_username %}
+            <p>Проигравший: {{ game_state.loser_username }}</p>
+        {% else %}
+            <p>Результаты игры обрабатываются.</p>
+        {% endif %}
+    {% endif %}
+
+    <hr style="margin-top: 20px;">
+    <form id="leave-room-form" action="{% url 'game:leave_room' room.id %}" method="POST" style="display: inline-block;">
+        {% csrf_token %}
+        <button type="submit" class="btn-leave">Покинуть комнату</button>
+    </form>
+    <a href="{% url 'lobby' %}" class="btn">Назад в лобби</a>
+
+    {# Передаем данные через json_script #}
+    {{ user.id|json_script:"user-id-data" }} {# Передаем напрямую user.id #}
+    {{ room.id|json_script:"room-id-data" }} {# Передаем напрямую room.id #}
+
+    <script>
+        // Извлекаем данные из json_script
+        const USER_ID_ELEMENT = document.getElementById('user-id-data');
+        const USER_ID = USER_ID_ELEMENT ? JSON.parse(USER_ID_ELEMENT.textContent) : null;
+
+        const ROOM_ID_ELEMENT = document.getElementById('room-id-data');
+        // Если room.id это UUID, JSON.parse вернет строку. Если int, то число.
+        const ROOM_ID = ROOM_ID_ELEMENT ? JSON.parse(ROOM_ID_ELEMENT.textContent) : null; 
+        
+        console.log("JavaScript User ID:", USER_ID, "(тип:", typeof USER_ID + ")");
+        console.log("JavaScript Room ID:", ROOM_ID, "(тип:", typeof ROOM_ID + ")");
+
+        const playerHandContainer = document.getElementById('player-hand');
+
+
+                function makeMoveClient(actionType, payload = {}) {
+                    if (USER_ID === null || ROOM_ID === null) {
+                        console.error("User ID или Room ID не определены. Невозможно отправить ход.");
+                        alert("Ошибка: данные пользователя или комнаты не загружены.");
+                        return;
+                    }
+
+                    const url = `/game/room/${ROOM_ID}/make_move/`;
+                    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+                    const bodyData = {
+                        action_type: actionType,
+                        ...payload
+                    };
+
+                    console.log(`Клиент: Отправка действия "${actionType}" на сервер. Данные:`, bodyData);
+
+                    fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrfToken,
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: JSON.stringify(bodyData)
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log("Ответ от сервера:", data);
+                        if (data.success) {
+                            alert(data.message || `Действие "${actionType}" успешно выполнено.`);
+                            window.location.reload(); 
+                        } else {
+                            alert('Ошибка хода: ' + (data.error || data.message || 'Неизвестная ошибка.'));
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Сетевая ошибка при выполнении хода:', error);
+                        alert('Произошла сетевая ошибка при выполнении хода.');
+                    });
+                }
+
+                if (playerHandContainer) {
+                    playerHandContainer.addEventListener('click', function(event) {
+                        let clickedCardWrapper = event.target.closest('.card-wrapper.card-in-hand');
+                
+                        if (clickedCardWrapper) {
+                            const cardHandIndexStr = clickedCardWrapper.dataset.handIndex;
+                            if (cardHandIndexStr !== undefined && cardHandIndexStr !== null && cardHandIndexStr !== "") {
+                                const cardHandIndex = parseInt(cardHandIndexStr, 10);
+                                if (!isNaN(cardHandIndex)) {
+                                    const isAttacking = confirm("Это атакующая карта? (ОК=Да, Отмена=Нет/Защита)");
+                                    if (isAttacking) {
+                                        makeMoveClient('attack', { card_indices: [cardHandIndex] });
+                                    } else {
+                                        const tableCardIndexToBeat = prompt("Введите индекс карты на столе, которую бьете (0, 1, ...):");
+                                        if (tableCardIndexToBeat !== null && tableCardIndexToBeat !== "") {
+                                        makeMoveClient('defend', { 
+                                            attack_card_table_index: parseInt(tableCardIndexToBeat), 
+                                            defense_card_hand_index: cardHandIndex 
+                                        });
+                                        } else {
+                                            alert("Индекс карты на столе не указан для защиты.");
+                                        }
+                                    }
+
+                                } else {
+                                    console.error("parseInt failed. 'cardHandIndexStr' was:", cardHandIndexStr);
+                                }
+                            } else {
+                                console.error("Атрибут data-hand-index пуст или отсутствует. Value:", cardHandIndexStr);
+                            }
+                        }
+                    });
+                }
+
+                const passBitoButton = document.getElementById('action-pass-bito');
+                if (passBitoButton) {
+                    passBitoButton.addEventListener('click', function() {
+                        makeMoveClient('pass_bito');
+                    });
+                }
+
+                const takeCardsButton = document.getElementById('action-take');
+                if (takeCardsButton) {
+                    takeCardsButton.addEventListener('click', function() {
+                        makeMoveClient('take');
+                    });
+                }
+        
+
+        function setupAjaxForm(formId, successCallback, errorCallback) {
+            const form = document.getElementById(formId);
+            if (form) {
+                form.addEventListener('submit', function(event) {
+                    event.preventDefault();
+                    const formData = new FormData(this);
+                    fetch(this.action, {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'X-CSRFToken': formData.get('csrfmiddlewaretoken'),
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            if (successCallback) successCallback(data);
+                            else if (data.message) alert(data.message);
+                            // Часто требуется перезагрузка для обновления состояния, если нет WebSocket
+                            if (data.redirect_url) window.location.href = data.redirect_url;
+                            // else window.location.reload();
+                        } else {
+                            if (errorCallback) errorCallback(data);
+                            else if (data.error) alert('Ошибка: ' + data.error);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Ошибка при отправке формы ' + formId + ':', error);
+                        alert('Произошла сетевая ошибка.');
+                    });
+                });
+            }
+        }
+
+        // Применяем AJAX к формам
+        setupAjaxForm('start-game-form', function(data) {
+            alert(data.message || 'Игра начата!');
+            window.location.reload(); // Перезагружаем, чтобы увидеть обновленное состояние игры
+        });
+
+        setupAjaxForm('leave-room-form', function(data) {
+            alert(data.message || 'Вы покинули комнату.');
+            if (data.room_canceled || data.redirect_url) { // Если комната отменена или есть явный редирект
+                window.location.href = data.redirect_url || "{% url 'lobby' %}";
+            } else {
+                 window.location.href = "{% url 'lobby' %}"; // По умолчанию в лобби
+            }
+        });
+
+    </script>
+{% endblock %}

@@ -1,0 +1,87 @@
+/* Основные стили */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  body {
+    font-family: sans-serif;
+    background: var(--background-color, #f0f4f8);
+    color: var(--text-color, #333);
+    transition: background-color 0.3s, color 0.3s;
+  }
+  
+  /* Цветовые переменные для тем */
+  :root {
+    --background-color: #f0f4f8;
+    --text-color: #333;
+  }
+  body.dark {
+    --background-color: #1c1c1c;
+    --text-color: #f0f4f8;
+  }
+  
+  /* Шапка */
+  header {
+    background-color: #404e67;
+    color: #fff;
+    padding: 15px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header .balance {
+    font-size: 16px;
+  }
+  header .theme-toggle {
+    font-size: 14px;
+  }
+  
+  /* Основная область */
+  main {
+    padding: 40px 20px;
+    text-align: center;
+  }
+  h1 {
+    margin-bottom: 30px;
+  }
+  
+  /* Вертикальные кнопки */
+  .menu-buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .btn {
+    display: block;
+    width: 200px;
+    background-color: #007bff;
+    color: #fff;
+    padding: 15px 25px;
+    margin: 10px 0;
+    font-size: 18px;
+    border-radius: 8px;
+    text-decoration: none;
+    cursor: pointer;
+    text-align: center;
+    transition: background-color 0.3s;
+  }
+  .btn:hover {
+    background-color: #0056b3;
+  }
+  
+  /* Скрытые секции */
+  .section {
+    display: none;
+    max-width: 600px;
+    margin: 30px auto;
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    text-align: left;
+  }
+  .section.active {
+    display: block;
+  }
+  

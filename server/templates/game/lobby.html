@@ -1,0 +1,52 @@
+{% extends "base.html" %} {# Если у вас есть базовый шаблон #}
+
+{% block title %}Лобби Игр{% endblock %}
+
+{% block content %}
+    <h1>Лобби Игр</h1>
+
+    {% if messages %} {# Блок для отображения сообщений Django #}
+        <ul class="messages">
+        {% for message in messages %}
+            <li class="{{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+        </ul>
+    {% endif %}
+
+    <p>Добро пожаловать, {{ user.username }}!</p> {# user доступен автоматически #}
+    <p>Ваш баланс: {{ user.cash }}</p> {# Можно использовать user.cash напрямую #}
+    
+    <p>
+        <a href="{% url 'game:create_room' %}" class="btn">Создать новую игру</a>
+        <form action="{% url 'logout' %}" method="POST" style="display: inline;">
+            {% csrf_token %}
+            <button type="submit" class="btn">Выйти</button>
+        </form>
+    </p>
+
+    <h2>Доступные комнаты:</h2>
+    {% if rooms %}
+        <ul>
+        {% for room in rooms %}
+            <li>
+                <strong>{{ room.name }}</strong> (Создатель: {{ room.creator.username }})
+                <br>
+                Игроков: {{ room.players.count }}/{{ room.max_players }} {# Используем room.players.count() вместо room.players_count из аннотации, если удобнее #}
+                <br>
+                Ставка: {{ room.bet_amount }}
+                
+                {# Форма для присоединения к игре. game_id здесь это room.id #}
+                <form action="{% url 'game:join_game' room.id %}" method="POST" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn-join">Присоединиться</button>
+                </form>
+            </li>
+            <hr>
+        {% empty %}
+            <li>Нет доступных комнат для присоединения.</li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>Нет доступных комнат для присоединения.</p>
+    {% endif %}
+{% endblock %}
