@@ -180,40 +180,64 @@ class DurakGame:
             return True
         return False
 
-    def attack(self, attacking_player_user: Player, card_indices: list[int]) -> dict:
+
+    def play_card(self, player_user: Player, card_hand_index: int) -> dict:
         if not self.game_model_instance or self.game_model_instance.status != GameRoom.STATUS_PLAYING:
             return {'success': False, 'message': "Игра не активна."}
-        if not self.players or attacking_player_user != self.players[self.attacker_index]:
-            return {'success': False, 'message': "Сейчас не ваш ход для атаки."}
 
-        if not card_indices:
-            return {'success': False, 'message': "Нужно выбрать карты для атаки."}
-
-        attacker_hand = list(self._get_player_hand(attacking_player_user)) 
-        cards_to_play_objects = []
-        for idx in sorted(card_indices, reverse=True): 
-            if 0 <= idx < len(attacker_hand):
-                cards_to_play_objects.insert(0, attacker_hand[idx]) 
-            else:
-                return {'success': False, 'message': f"Неверный индекс карты: {idx}."}
+        if not self.players:
+            return {'success': False, 'message': "В игре нет игроков."}
+            
+        is_main_attacker = (player_user == self.players[self.attacker_index])
+        is_defender = (player_user == self.players[self.defender_index])
         
-        if not cards_to_play_objects: 
-            return {'success': False, 'message': "Не выбрано ни одной валидной карты."}
+        can_throw_in = False
+        if not is_main_attacker and not is_defender:
+            can_throw_in = self._can_player_throw_in(player_user)
 
+        if is_main_attacker or can_throw_in:
+            return self.attack(player_user, card_hand_index)
+        elif is_defender:
+            first_unbeaten_card_table_index = -1
+            for i, pair in enumerate(self.table):
+                if not pair.get('defense_card'):
+                    first_unbeaten_card_table_index = i
+                    break
+            
+            if first_unbeaten_card_table_index != -1:
+                return self.defend(player_user, first_unbeaten_card_table_index, card_hand_index)
+            else:
+                return {'success': False, 'message': "Нет карт для отбития на столе, или действие неверно для текущей ситуации."}
+        else:
+            return {'success': False, 'message': "Сейчас не ваш ход или вы не можете выполнить это действие."}
+
+
+    def attack(self, attacking_player_user: Player, card_hand_index: int) -> dict:
+        is_main_attacker = (attacking_player_user == self.players[self.attacker_index])
+        can_throw = self._can_player_throw_in(attacking_player_user)
+
+        if not is_main_attacker and not can_throw:
+            return {'success': False, 'message': "Сейчас не ваш ход для атаки или подкидывания."}
+
+        attacker_hand = self._get_player_hand(attacking_player_user)
+        if not (0 <= card_hand_index < len(attacker_hand)):
+            return {'success': False, 'message': f"Неверный индекс карты: {card_hand_index}."}
+        
+        card_to_play_obj = attacker_hand[card_hand_index]
+        
         defender_user = self.players[self.defender_index]
         defender_hand_count = len(self._get_player_hand(defender_user))
         
         unbeaten_attack_cards_on_table = [pair['attack_card'] for pair in self.table if not pair.get('defense_card')]
         
-        if not self.table or not unbeaten_attack_cards_on_table: 
-            if not all(c['rank'] == cards_to_play_objects[0]['rank'] for c in cards_to_play_objects):
-                return {'success': False, 'message': "Для первой атаки все карты должны быть одного ранга."}
-            if len(cards_to_play_objects) > defender_hand_count and defender_hand_count > 0 : 
-                 return {'success': False, 'message': f"Нельзя атаковать большим количеством карт ({len(cards_to_play_objects)}), чем есть у защищающегося ({defender_hand_count})."}
-            if len(cards_to_play_objects) > 6:
+        if not self.table or (self.table and not unbeaten_attack_cards_on_table and is_main_attacker):
+            if len(self.table) >= defender_hand_count and defender_hand_count > 0:
+                 return {'success': False, 'message': f"Нельзя атаковать большим количеством карт ({len(self.table) + 1}), чем есть у защищающегося ({defender_hand_count})."}
+            if len(self.table) >= 6:
                  return {'success': False, 'message': "Нельзя атаковать более чем 6 картами за раунд."}
-        else: 
-            if len(self.table) + len(cards_to_play_objects) > 6:
+
+        else:
+            if len(self.table) + 1 > 6:
                 return {'success': False, 'message': "Слишком много карт на столе (максимум 6)."}
             
             allowed_ranks_for_throw_in = set()
@@ -222,40 +246,57 @@ class DurakGame:
                 if pair_on_table.get('defense_card'):
                     allowed_ranks_for_throw_in.add(pair_on_table['defense_card']['rank'])
             
-            logger.debug(f"Room {self.room.id} - Attempting to throw in. Allowed ranks: {allowed_ranks_for_throw_in}")
-            logger.debug(f"Room {self.room.id} - Cards to throw in: {[c['rank'] for c in cards_to_play_objects]}")
-
-            if not all(c['rank'] in allowed_ranks_for_throw_in for c in cards_to_play_objects):
-                return {'success': False, 'message': "Карты для подкидывания должны совпадать по рангу с картами на столе."}
+            if not allowed_ranks_for_throw_in:
+                 if not is_main_attacker:
+                    return {'success': False, 'message': "Нет карт на столе для определения ранга подкидывания."}
+            elif card_to_play_obj['rank'] not in allowed_ranks_for_throw_in:
+                return {'success': False, 'message': "Карта для подкидывания должна совпадать по рангу с картами на столе."}
             
-            max_throw_in = defender_hand_count - len(unbeaten_attack_cards_on_table)
-            if len(cards_to_play_objects) > max_throw_in and max_throw_in >= 0:
-                 return {'success': False, 'message': f"Нельзя подкинуть больше карт ({len(cards_to_play_objects)}), чем может отбить защищающийся ({max_throw_in}). Защитнику не хватит карт."}
-            if max_throw_in < 0 and len(cards_to_play_objects) > 0: 
-                return {'success': False, 'message': "Защищающемуся уже не хватает карт отбиться, нельзя подкидывать."}
+            if defender_hand_count == 0:
+                 return {'success': False, 'message': "У защищающегося нет карт, подкидывать нельзя."}
 
-        played_cards_count = 0
-        for card_idx_to_remove in sorted(card_indices, reverse=True):
-            removed_card = self._remove_card_from_hand(attacking_player_user, card_idx_to_remove)
-            if removed_card:
-                self.table.append({'attack_card': removed_card, 'defense_card': None, 'attacker_id': attacking_player_user.id})
-                played_cards_count += 1
-            else:
-                logger.error(f"Failed to remove card at index {card_idx_to_remove} for attack by {attacking_player_user.id}")
-                return {'success': False, 'message': "Внутренняя ошибка: не удалось корректно снять карту с руки."}
+            num_already_on_table_to_beat = len(unbeaten_attack_cards_on_table)
+            if num_already_on_table_to_beat >= defender_hand_count :
+                 return {'success': False, 'message': "Защищающемуся уже не хватает карт отбиться от текущих атак, нельзя подкидывать."}
+
+
+        removed_card = self._remove_card_from_hand(attacking_player_user, card_hand_index)
+        if removed_card:
+            self.table.append({'attack_card': removed_card, 'defense_card': None, 'attacker_id': attacking_player_user.id})
+        else:
+            logger.error(f"Failed to remove card at index {card_hand_index} for attack by {attacking_player_user.id}")
+            return {'success': False, 'message': "Внутренняя ошибка: не удалось корректно снять карту с руки."}
         
-        if played_cards_count == 0 and card_indices: 
-             return {'success': False, 'message': "Не удалось сыграть выбранные карты."}
-
         self.save_game_state()
-        return {'success': True, 'message': "Атака совершена."}
+        return {'success': True, 'message': "Атака/подкидывание совершено."}
 
+    def _can_player_throw_in(self, player_user: Player) -> bool:
+        """
+        Проверяет, может ли данный игрок (не основной атакующий) подкидывать карты.
+        """
+        if not self.game_model_instance or self.game_model_instance.status != GameRoom.STATUS_PLAYING:
+            return False
+        if not self.table:
+            return False
+        if player_user == self.players[self.defender_index]:
+            return False
+        if player_user == self.players[self.attacker_index]:
+            return True
+        
+        unbeaten_cards_exist = any(not pair.get('defense_card') for pair in self.table)
+        defender_has_cards = len(self._get_player_hand(self.players[self.defender_index])) > 0
+        table_not_full = len(self.table) < 6
+
+        if table_not_full and defender_has_cards:
+            if unbeaten_cards_exist:
+                return True
+            else:
+                return False 
+        return False
 
     def defend(self, defending_player_user: Player, attack_card_table_index: int, defense_card_hand_index: int) -> dict:
         if not self.game_model_instance or self.game_model_instance.status != GameRoom.STATUS_PLAYING:
             return {'success': False, 'message': "Игра не активна."}
-        if not self.players or defending_player_user != self.players[self.defender_index]:
-            return {'success': False, 'message': "Сейчас не ваш ход для защиты."}
         
         if not (0 <= attack_card_table_index < len(self.table)):
             return {'success': False, 'message': "Неверный индекс атакующей карты на столе."}
@@ -278,13 +319,17 @@ class DurakGame:
                 table_pair['defense_card'] = removed_defense_card
                 table_pair['defender_id'] = defending_player_user.id 
                 self.save_game_state()
-                return {'success': True, 'message': "Карта отбита."}
+                
+                all_defended_now = all(p.get('defense_card') for p in self.table)
+                if all_defended_now:
+                    return {'success': True, 'message': "Карта отбита. Все карты на столе отбиты.", 'all_defended': True}
+                else:
+                    return {'success': True, 'message': "Карта отбита.", 'all_defended': False}
             else:
                  logger.error(f"Internal error removing defense card for player {defending_player_user.id}")
                  return {'success': False, 'message': "Внутренняя ошибка при удалении карты защиты."}
         else:
             return {'success': False, 'message': "Этой картой нельзя отбиться."}
-
     def _deal_cards_after_round(self):
         if not self.game_model_instance or self.game_model_instance.status != GameRoom.STATUS_PLAYING:
             return

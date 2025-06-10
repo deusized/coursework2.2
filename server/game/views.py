@@ -377,6 +377,7 @@ def game_status(request, room_id):
 
 @login_required
 @require_POST
+@transaction.atomic
 def make_move_view(request, room_id):
     room = get_object_or_404(GameRoom, id=room_id)
     user = request.user
@@ -394,34 +395,47 @@ def make_move_view(request, room_id):
         game_logic = DurakGame(room)
 
         if not game_logic.game_model_instance:
-             return JsonResponse({'success': False, 'error': 'Состояние игры не найдено или не инициализировано.'}, status=500)
+             logger.warning(f"make_move_view: Game model instance for room {room.id} not found/initialized in DurakGame.")
+             return JsonResponse({'success': False, 'error': 'Состояние игры не найдено или не инициализировано в DurakGame.'}, status=500)
 
         response_data = {'success': False, 'message': 'Неизвестное действие или ошибка.'}
 
-        if action_type == 'attack':
-            card_indices = data.get('card_indices') 
-            if card_indices is None or not isinstance(card_indices, list):
-                return JsonResponse({'success': False, 'error': 'Не указаны карты для атаки.'}, status=400)
+        if action_type == 'play_card':
+            card_hand_index_str = data.get('card_hand_index')
+            if card_hand_index_str is None:
+                return JsonResponse({'success': False, 'error': 'Не указан индекс карты для хода.'}, status=400)
+            try:
+                card_hand_index = int(card_hand_index_str)
+            except ValueError:
+                 return JsonResponse({'success': False, 'error': 'Индекс карты должен быть числом.'}, status=400)
+            
+            result = game_logic.play_card(user, card_hand_index)
+            response_data.update(result)
+        
+        elif action_type == 'attack':
+            card_indices_str = data.get('card_indices') 
+            if card_indices_str is None or not isinstance(card_indices_str, list):
+                return JsonResponse({'success': False, 'error': 'Не указаны карты для атаки (ожидался список).'}, status=400)
             
             try:
-                card_indices = [int(idx) for idx in card_indices]
+                card_indices = [int(idx) for idx in card_indices_str]
+                if not card_indices:
+                    return JsonResponse({'success': False, 'error': 'Список карт для атаки пуст.'}, status=400)
+                result = game_logic.attack(user, card_indices[0])
             except ValueError:
                 return JsonResponse({'success': False, 'error': 'Индексы карт должны быть числами.'}, status=400)
-
-            result = game_logic.attack(user, card_indices)
             response_data.update(result)
 
         elif action_type == 'defend':
-            attack_card_table_index = data.get('attack_card_table_index')
-            defense_card_hand_index = data.get('defense_card_hand_index')
-            if attack_card_table_index is None or defense_card_hand_index is None:
+            attack_card_table_index_str = data.get('attack_card_table_index')
+            defense_card_hand_index_str = data.get('defense_card_hand_index')
+            if attack_card_table_index_str is None or defense_card_hand_index_str is None:
                  return JsonResponse({'success': False, 'error': 'Не указаны карты для защиты.'}, status=400)
             try:
-                attack_card_table_index = int(attack_card_table_index)
-                defense_card_hand_index = int(defense_card_hand_index)
+                attack_card_table_index = int(attack_card_table_index_str)
+                defense_card_hand_index = int(defense_card_hand_index_str)
             except ValueError:
                 return JsonResponse({'success': False, 'error': 'Индексы карт должны быть числами.'}, status=400)
-
 
             result = game_logic.defend(user, attack_card_table_index, defense_card_hand_index)
             response_data.update(result)
@@ -434,16 +448,17 @@ def make_move_view(request, room_id):
             result = game_logic.take_cards_action(user)
             response_data.update(result)
         else:
+            logger.warning(f"Неизвестный action_type '{action_type}' от пользователя {user.username} в комнате {room_id}")
             return JsonResponse({'success': False, 'error': 'Неизвестный тип действия.'}, status=400)
 
         return JsonResponse(response_data)
 
     except json.JSONDecodeError:
+        logger.warning(f"Ошибка JSONDecodeError в make_move_view для комнаты {room_id}", exc_info=True)
         return JsonResponse({'success': False, 'error': 'Некорректный JSON в теле запроса.'}, status=400)
     except Exception as e:
         logger.error(f"Ошибка при обработке хода в комнате {room_id} игроком {user.username}: {e}", exc_info=True)
         return JsonResponse({'success': False, 'error': 'Внутренняя ошибка сервера при обработке хода.'}, status=500)
-
 
 @login_required
 @require_POST
